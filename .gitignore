@@ -1,0 +1,11 @@
+# nix build outputs
+result
+result-*
+.direnv/
+# test VM disk images, if the vm/ tooling is restored
+vm/*.qcow2
+vm/*.img
+vm/*.iso
+vm/id_ed25519*
+# local symlink to the personal config repo, not part of this project
+config

@@ -1,0 +1,35 @@
+--- a/nixGL.nix
++++ b/nixGL.nix
+@@ -16,7 +16,8 @@
+ , stdenv, writeTextFile, shellcheck, pcre, runCommand, linuxPackages
+ , fetchurl, lib, runtimeShell, bumblebee, libglvnd, vulkan-validation-layers
+ , mesa, libvdpau-va-gl, intel-media-driver, pkgsi686Linux, driversi686Linux
+-, zlib, libdrm, libx11, libxcb, libxshmfence, wayland, gcc, zstd }:
++, zlib, libdrm, libx11, libxcb, libxshmfence, wayland, gcc, zstd
++, egl-wayland, egl-gbm, egl-x11 }:
+ 
+ let
+   writeExecutable = { name, text }:
+@@ -149,8 +150,21 @@
+                 NVIDIA_ICD_FILENAMES=$(IFS=:; echo "''${NVIDIA_ICD[*]}")
+                 export VK_ICD_FILENAMES="''${NVIDIA_ICD_FILENAMES}''${VK_ICD_FILENAMES:+:$VK_ICD_FILENAMES}"''
+               }
++              # Mesa's libgbm (used by wlroots/aquamarine compositors such as
++              # Hyprland) looks for GBM backends only in the NixOS path
++              # /run/opengl-driver/lib/gbm unless told otherwise. Point it at
++              # the NVIDIA backend shipped with the driver.
++              export GBM_BACKENDS_PATH=${nvidiaLibsOnly}/lib/gbm"''${GBM_BACKENDS_PATH:+:$GBM_BACKENDS_PATH}"
++              # libEGL_nvidia implements Wayland/GBM/X11 EGL platforms through
++              # external platform libraries. Its built-in search dirs are the
++              # host's /etc/egl and /usr/share/egl, whose libraries cannot be
++              # dlopen'ed from a Nix process (their dependencies are not on its
++              # library path), so EGL on Wayland fails. Use the Nix-built ones.
++              export __EGL_EXTERNAL_PLATFORM_CONFIG_DIRS=${
++                lib.concatStringsSep ":" (map (p: "${p}/share/egl/egl_external_platform.d") [ egl-wayland egl-gbm egl-x11 ])
++              }
+               export LD_LIBRARY_PATH=${
+-                lib.makeLibraryPath ([ libglvnd nvidiaLibsOnly ]
++                lib.makeLibraryPath ([ libglvnd nvidiaLibsOnly egl-wayland egl-gbm egl-x11 ]
+                   ++ lib.optional (api == "Vulkan") vulkan-validation-layers
+                   ++ lib.optionals enable32bits [
+                     nvidiaLibsOnly.lib32
