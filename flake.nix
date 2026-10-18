@@ -58,7 +58,9 @@
 
       # The login name the EXAMPLE configuration below is for. Only used by
       # that example; a flake that imports homeModules.omarchy sets its own.
-      user = "adam";
+      # Taken from $USER when evaluated with --impure (bootstrap.sh does),
+      # so a fresh machine needs no edit here. Falls back to "adam".
+      user = let u = builtins.getEnv "USER"; in if u == "" then "adam" else u;
     in {
       # --- The reusable part ---------------------------------------------
       # In your own Home Manager flake:

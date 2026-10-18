@@ -1,122 +1,145 @@
-# Omarchy on Ubuntu, via Nix
+# Omarchy on Ubuntu via Nix
 
-The full [Omarchy](https://omarchy.org) v4 Hyprland desktop — Quickshell
-bar, lock screen, menus, themes and all — running on a stock Ubuntu
-Desktop install, packaged as a [Home Manager](https://github.com/nix-community/home-manager)
-module. Ubuntu's GNOME stays the default session; Omarchy is picked from
-the gear menu on the login screen (GDM then remembers whichever session
-you used last). Nothing here installs or changes drivers.
+This gives you the full [Omarchy](https://omarchy.org) desktop on a normal Ubuntu
+install. Omarchy is a Hyprland setup by Basecamp with its own bar, launcher, lock
+screen, menus and themes. Here it comes as a [Home Manager](https://github.com/nix-community/home-manager)
+module, so everything is installed through Nix and nothing in Ubuntu itself is
+replaced. GNOME stays as it is. At the login screen you pick Omarchy from the
+gear menu, and GDM remembers your choice.
 
-This repo is only the desktop layer. Your own software (shell, editor,
-terminal, apps) lives in your own Home Manager configuration, which
-imports this module.
+No drivers are touched. Nix built programs talk to the graphics driver Ubuntu
+already has, through a small shim called nixGL.
 
-```
-flake.nix / flake.lock   inputs pinned to exact versions; exports
-                         homeModules.omarchy and a minimal example config
-modules/omarchy.nix      the Omarchy desktop port (packages, config links,
-                         shims, GDM session script, patched nixGL)
-hypr/                    the Hyprland Lua files Omarchy treats as user-owned
-                         (monitors, input, keys, look, autostart); default seed
-patches/                 fix for upstream nixGL's NVIDIA wrapper (see Credits)
-bootstrap.sh             one-shot installer for a fresh machine
-home.nix                 the example configuration: Omarchy and nothing else
+## Quick start on a fresh machine
+
+You need Ubuntu Desktop with a user account and sudo. Then:
+
+```bash
+git clone https://github.com/adam-abed-abud/omarchy-ubuntu-nix.git
+cd omarchy-ubuntu-nix
+./bootstrap.sh
 ```
 
-## Use it from your own flake
+The script installs Nix, builds the desktop, and writes the handful of system
+files that need root: the login screen entry, the lock screen's PAM service, the
+screen sharing portal, and an AppArmor profile. It asks for your sudo password
+along the way. Expect a few gigabytes of downloads. It is safe to run again.
+
+When it finishes, log out, click the gear icon on the login screen, choose
+Omarchy, and log in. Press Super and K to see all keybindings.
+
+If you have an NVIDIA card with the proprietary driver, make one change before
+running the script. Open `home.nix` and set the wrapper to nvidia:
 
 ```nix
-# flake.nix
-inputs.omarchy-ubuntu.url = "github:<you>/<this repo>";
-# nixpkgs must be nixos-unstable: Omarchy v4 needs Hyprland 0.56+ / Quickshell 0.3+
+targets.genericLinux.nixGL.defaultWrapper = "nvidia";
+```
+
+Intel and AMD cards work with the default, which is mesa.
+
+## Adding Omarchy to your own Home Manager setup
+
+If you already manage your machine with Home Manager, you do not need the
+example configuration. Import the module in your flake:
+
+```nix
+inputs.omarchy-ubuntu.url = "github:adam-abed-abud/omarchy-ubuntu-nix";
 inputs.omarchy-ubuntu.inputs.nixpkgs.follows = "nixpkgs";
 
-# in homeManagerConfiguration:
+# in your homeManagerConfiguration
 modules = [ inputs.omarchy-ubuntu.homeModules.omarchy ./home.nix ];
 ```
 
+Your nixpkgs has to be nixos-unstable, because Omarchy needs a recent Hyprland
+and Quickshell. Then turn it on in your home.nix:
+
 ```nix
-# home.nix
 omarchy.enable = true;
-targets.genericLinux.nixGL.defaultWrapper = "nvidia";   # or "mesa" for Intel/AMD
-nixpkgs.config.allowUnfree = true;                      # NVIDIA userspace libs, chromium codecs
-# omarchy.hyprDir = ./hypr;   # your copy of this repo's hypr/, to change monitors/keys
+targets.genericLinux.nixGL.defaultWrapper = "mesa";   # or "nvidia"
+nixpkgs.config.allowUnfree = true;
 ```
 
-Then, on the machine:
+Finally run the bootstrap script from this repo and point it at your flake, so
+it can write the root owned files:
 
 ```bash
-git clone <this repo> && cd <this repo>
-./bootstrap.sh /path/to/your/flake#name
+./bootstrap.sh /path/to/your/flake#yourname
 ```
 
-The script installs Nix, runs `home-manager switch` on your flake, and
-writes the few root-owned files Nix can't: the GDM session entry, PAM for
-the lock screen plus a `/run/wrappers/bin/unix_chkpwd` symlink for it,
-screen-share portal registration, a `/usr/share/omarchy` symlink to the
-Nix-linked Omarchy tree, an AppArmor profile so Nix's bubblewrap may
-create user namespaces (Nautilus/Evince thumbnails), and Docker. It makes
-zsh the login shell if your flake installs one. Safe to re-run. Log out
-afterwards and pick "Omarchy (Hyprland)" from the gear menu.
+## Everyday use
 
-Run it with no argument to get the example configuration in `home.nix`:
-Omarchy alone, for the login name set as `user` in `flake.nix`.
-
-Two things to check on new hardware: GPU → `defaultWrapper` (`"nvidia"`
-for the proprietary NVIDIA driver, `"mesa"` for Intel/AMD); monitor →
-`omarchy_gdk_scale` in `hypr/monitors.lua` (1 for a regular 1080p screen,
-2 for HiDPI). The nvidia wrapper reads the installed driver version at
-build time, so every switch needs `--impure`, and a driver upgrade means
-re-running the switch. nixGL is a userspace shim that points Nix-built
-apps at the host's existing GL libraries.
-
-## Day to day
+Apply a change to your configuration:
 
 ```bash
-home-manager switch --flake <ref> --impure                       # apply changes
-nix flake update && home-manager switch --flake <ref> --impure   # upgrade all
-home-manager generations                                         # roll back
+home-manager switch --flake .#$USER --impure
 ```
 
-Config files are read-only links into the Nix store on purpose: edit the
-files in your flake, not in `~/.config`, then re-run switch.
+Update everything to the latest pinned versions:
 
-## Omarchy
+```bash
+nix flake update
+home-manager switch --flake .#$USER --impure
+```
 
-The pinned Omarchy repo (v4.0.4) is linked to `~/.local/share/omarchy`
-and runs its own scripts, Lua Hyprland config and Quickshell shell
-unmodified. Start with `Super + K` (all keybindings). Common ones:
-`Super + Space` launcher, `Super + Alt + Space` menu, `Super + Return`
-terminal, `Super + Shift + Ctrl + Space` themes, `Print` screenshot. Bar
-widgets are clickable; bar layout and plugins live in
-`~/.config/omarchy/shell.json`.
+Go back to an earlier version if something broke:
 
-Module options: `omarchy.enable`, `omarchy.hyprDir` (your Hyprland Lua
-files), `omarchy.nixGL.provide` (set false to bring your own nixGL
-package set).
+```bash
+home-manager generations
+```
 
-Differences from Omarchy on Arch, all deliberate: updates go through
-`nix flake update` (the `omarchy-update` menu entry says so); the
-pacman-based `Install >` menus don't work; no Plymouth/SDDM boot theming,
-fingerprint unlock or Voxtype. Default apps that Omarchy's keybindings
-and MIME defaults expect but that are *your* choice (editor, PDF viewer,
-media player, browser other than Chromium) are not installed by the
-module.
+The `--impure` flag is only needed with the nvidia wrapper, which reads the
+installed driver version while building. It does no harm otherwise. After an
+NVIDIA driver upgrade, run the switch again.
 
-## Credits and origins
+Config files in `~/.config` are read only links into the Nix store. That is on
+purpose. Edit the files in this repo (or in your flake) and run the switch again.
 
-- [Omarchy](https://omarchy.org) by Basecamp — pinned unmodified; this repo
-  only adapts how it is installed and launched on Ubuntu.
-- [nixGL](https://github.com/nix-community/nixGL) provides the GPU access
-  for Nix-built apps on a non-NixOS host. Upstream has been dormant since
-  late 2025, so the flake pins [catouc's aggregate branch](https://github.com/nix-community/nixGL/pull/226)
-  of the open fixes (current nixpkgs compatibility, NVIDIA 59x version
-  parsing). On top of that, `patches/nixgl-nvidia-gbm-backends.patch`
-  makes the NVIDIA wrapper export `GBM_BACKENDS_PATH` (without it Hyprland
-  cannot create a GBM allocator; cf. [nixGL #210](https://github.com/nix-community/nixGL/pull/210))
-  and ship the Nix-built `egl-wayland`/`egl-gbm`/`egl-x11` platform
-  libraries (without them EGL on Wayland fails for every Nix app, because
-  the host's platform libraries cannot be loaded into a Nix process).
+## Monitors, scale and keybindings
+
+Omarchy keeps the parts you are meant to edit in a few Lua files: monitors,
+input, keybindings, look and feel, and autostart. The defaults are in the
+`hypr/` folder. Edit them there if you use the example configuration. If you
+use your own flake, copy the folder into it and tell the module where it is:
+
+```nix
+omarchy.hyprDir = ./hypr;
+```
+
+The one setting most people need is the scale in `hypr/monitors.lua`. Set it to
+1 for a normal 1080p screen and 2 for a HiDPI screen.
+
+## What is different from Omarchy on Arch
+
+Omarchy is pinned at version 4.0.4 and runs unmodified, with three deliberate
+differences. Updates go through `nix flake update` instead of pacman, so the
+update entry in the menu only points you there. The install menus that rely on
+pacman do not work. Boot theming, fingerprint unlock and Voxtype are not
+included.
+
+The module installs the desktop and Chromium, nothing more. Your editor, PDF
+viewer, media player and other apps are your choice and go in your own
+configuration.
+
+## What is in this repo
+
+`flake.nix` pins every input to an exact version and exports the module as
+`homeModules.omarchy`. `modules/omarchy.nix` is the module itself. `hypr/`
+holds the default Hyprland Lua files. `home.nix` is the example configuration
+used by the quick start. `bootstrap.sh` is the installer. `patches/` holds a
+fix for nixGL on NVIDIA, explained below.
+
+## Credits
+
+Omarchy is by Basecamp and is used as is. This repo only changes how it is
+installed and started on Ubuntu.
+
+nixGL by the nix-community lets Nix built programs use the host's graphics
+driver. Upstream has been quiet since late 2025, so this flake pins
+[a branch that collects the open fixes](https://github.com/nix-community/nixGL/pull/226).
+On top of that, the patch in `patches/` makes the NVIDIA wrapper export
+`GBM_BACKENDS_PATH`, without which Hyprland cannot start (see
+[nixGL #210](https://github.com/nix-community/nixGL/pull/210)), and ships the
+EGL platform libraries that Wayland apps need inside a Nix process.
 
 ## License
 
