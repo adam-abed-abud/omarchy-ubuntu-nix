@@ -10,7 +10,7 @@
 #   3. home-manager switch --flake <ref>  (everything else lives there)
 #   4. zsh from the Nix profile becomes the login shell, if the flake installs one
 #   5. the root-owned files the Omarchy session needs (GDM entry, PAM, portal,
-#      /usr/share/omarchy symlink, AppArmor profile for Nix's bubblewrap)
+#      /usr/share/omarchy symlink, AppArmor profiles for Nix's bubblewrap and Brave)
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -176,6 +176,28 @@ profile nix_unpriv_bwrap flags=(attach_disconnected,mediate_deleted) {
 }
 EOF
 sudo apparmor_parser -r /etc/apparmor.d/nix-bwrap
+
+# 6. AppArmor profile for Nix-built Brave. Same restriction as above: without
+#    a profile granting userns, Chromium falls back to its setuid sandbox
+#    helper, which cannot be setuid root in the read-only /nix/store, and
+#    aborts at startup ("The SUID sandbox helper binary was found, but is not
+#    configured correctly"). Mirror of Ubuntu's own /etc/apparmor.d/brave
+#    (which only matches the deb's /opt/brave.com path), bound to the store
+#    path glob so it survives Brave updates. Harmless if Brave is not installed.
+sudo tee /etc/apparmor.d/nix-brave >/dev/null <<'EOF'
+# Nix-built Brave: mirror of Ubuntu's /etc/apparmor.d/brave, bound to the Nix
+# store path, so Chromium's user-namespace sandbox is allowed.
+abi <abi/5.0>,
+include <tunables/global>
+
+profile nix_brave /nix/store/*-brave-*/opt/brave.com/brave/brave flags=(unconfined) {
+  userns,
+  @{exec_path} mr,
+
+  include if exists <local/nix-brave>
+}
+EOF
+sudo apparmor_parser -r /etc/apparmor.d/nix-brave
 
 log "Done"
 cat <<'EOF'
